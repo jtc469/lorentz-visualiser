@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lorenz Attractor</title>
+    
+    <!-- Tailwind CSS for styling the UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Three.js library for 3D graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- OrbitControls for camera manipulation -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* Custom styles for a clean, modern look */
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #111827; /* Dark gray background */
+            color: #E5E7EB; /* Light gray text */
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(17, 24, 39, 0.85); /* Semi-transparent dark background */
+            padding: 20px;
+            border-radius: 12px;
+            max-width: 380px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        #three-canvas {
+            display: block;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .slider-label {
+            min-width: 80px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        .slider-value {
+             min-width: 50px;
+             text-align: right;
+             font-family: monospace;
+             font-size: 14px;
+             color: #af9c9c;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: #4B5563; /* Gray track */
+            border-radius: 3px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #91bbff; /* Blue thumb */
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #111827;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #3B82F6;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #111827;
+        }
+    </style>
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- The canvas where the 3D scene will be rendered -->
+    <canvas id="three-canvas"></canvas>
+
+    <!-- UI Panel for information and controls -->
+    <div id="info-panel" class="shadow-lg">
+        <h1 class="text-xl font-bold mb-2 text-white">Lorenz Attractor Visualizer</h1>
+        <p class="text-sm text-gray-400 mb-4">
+            An interactive visualization of a chaotic system. Drag to rotate, scroll to zoom, and right-click to pan.
+        </p>
+
+        <!-- Controls for the Lorenz system parameters -->
+        <div class="slider-container">
+            <label for="sigma" class="slider-label">σ:</label>
+            <input type="range" id="sigma" min="0" max="30" value="10" step="0.1" class="mx-3">
+            <span id="sigma-value" class="slider-value">10.0</span>
+        </div>
+        <div class="slider-container">
+            <label for="rho" class="slider-label">ρ:</label>
+            <input type="range" id="rho" min="0" max="60" value="28" step="0.1" class="mx-3">
+            <span id="rho-value" class="slider-value">28.0</span>
+        </div>
+        <div class="slider-container">
+            <label for="beta" class="slider-label">β:</label>
+            <input type="range" id="beta" min="0" max="5" value="2.667" step="0.001" class="mx-3">
+            <span id="beta-value" class="slider-value">2.667</span>
+        </div>
+        
+        <button id="reset-button" class="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+            Reset
+        </button>
+    </div>
+
+    <script type="module">
+        // === BASIC SETUP ===
+        let scene, camera, renderer, controls;
+        
+        // === LORENZ SYSTEM VARIABLES ===
+        let sigma = 10;
+        let rho = 28;
+        let beta = 8 / 3;
+        const dt = 0.01; // Time step for the simulation
+        let x = 0.1, y = 0, z = 0; // Initial position
+
+        // === 3D OBJECTS ===
+        let line; // The main line that traces the attractor
+        let particle; // A sphere that marks the current position
+        const MAX_POINTS = 20000; // Maximum number of points in the line
+        let positions;
+        let drawCount = 0;
+
+        // Function to initialize the entire scene
+        function init() {
+            // --- Scene ---
+            scene = new THREE.Scene();
+
+            // --- Camera ---
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 50);
+
+            // --- Renderer ---
+            const canvas = document.getElementById('three-canvas');
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            // --- Controls ---
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Smooth camera movement
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 10;
+            controls.maxDistance = 200;
+
+            // --- Lighting ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+            
+            // --- Geometry Setup ---
+            setupAttractorGeometry();
+            
+            // --- Event Listeners ---
+            setupEventListeners();
+
+            // --- Start Animation ---
+            animate();
+        }
+
+        // Function to set up the geometry for the line and particle
+        function setupAttractorGeometry() {
+            // Remove old objects if they exist
+            if (line) scene.remove(line);
+            if (particle) scene.remove(particle);
+
+            // --- Line Geometry (using BufferGeometry for performance) ---
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0x3B82F6, // A vibrant blue
+                linewidth: 1,
+                opacity: 0.8,
+                transparent: true
+            });
+            const geometry = new THREE.BufferGeometry();
+            positions = new Float32Array(MAX_POINTS * 3); // 3 vertices per point (x, y, z)
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            line = new THREE.Line(geometry, material);
+            scene.add(line);
+
+            // --- Particle Sphere ---
+            const particleGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const particleMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xffffff, // White particle
+                emissive: 0x3B82F6, // Glows with the line color
+                emissiveIntensity: 2
+            });
+            particle = new THREE.Mesh(particleGeometry, particleMaterial);
+            scene.add(particle);
+            
+            // Reset initial conditions
+            x = 0.1; y = 0; z = 0;
+            drawCount = 0;
+        }
+
+        // Function to update the Lorenz system based on its differential equations
+        function updateLorenz() {
+            // Calculate the next point using the Lorenz equations
+            const dx = sigma * (y - x);
+            const dy = x * (rho - z) - y;
+            const dz = x * y - beta * z;
+
+            x += dx * dt;
+            y += dy * dt;
+            z += dz * dt;
+
+            // Update the line geometry
+            if (drawCount < MAX_POINTS) {
+                positions[drawCount * 3] = x;
+                positions[drawCount * 3 + 1] = y;
+                positions[drawCount * 3 + 2] = z;
+                drawCount++;
+                line.geometry.setDrawRange(0, drawCount); // Only draw the points we have
+                line.geometry.attributes.position.needsUpdate = true;
+            }
+            
+            // Update the particle's position
+            particle.position.set(x, y, z);
+        }
+
+        // The main animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update the Lorenz system multiple times per frame for smoother drawing
+            for(let i=0; i<5; i++){
+                updateLorenz();
+            }
+
+            controls.update(); // Update camera controls
+            renderer.render(scene, camera);
+        }
+
+        // --- Event Handling ---
+        
+        function setupEventListeners() {
+            // Handle window resizing
+            window.addEventListener('resize', onWindowResize, false);
+            
+            // Handle slider inputs
+            document.getElementById('sigma').addEventListener('input', (e) => updateParameter('sigma', e.target.value));
+            document.getElementById('rho').addEventListener('input', (e) => updateParameter('rho', e.target.value));
+            document.getElementById('beta').addEventListener('input', (e) => updateParameter('beta', e.target.value));
+            
+            // Handle reset button click
+            document.getElementById('reset-button').addEventListener('click', resetVisualization);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function updateParameter(param, value) {
+            const floatValue = parseFloat(value);
+            document.getElementById(`${param}-value`).textContent = floatValue.toFixed(3);
+            if (param === 'sigma') sigma = floatValue;
+            if (param === 'rho') rho = floatValue;
+            if (param === 'beta') beta = floatValue;
+            // Reset the geometry to draw a new attractor with the new parameters
+            setupAttractorGeometry();
+        }
+        
+        function resetVisualization() {
+            // Reset to default parameter values
+            document.getElementById('sigma').value = 10;
+            document.getElementById('rho').value = 28;
+            document.getElementById('beta').value = 8/3;
+            updateParameter('sigma', 10);
+            updateParameter('rho', 28);
+            updateParameter('beta', 8/3);
+        }
+
+        // Let's go!
+        init();
+
+    </script>
+</body>
+</html>
